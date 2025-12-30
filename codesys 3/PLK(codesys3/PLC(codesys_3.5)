@@ -1,0 +1,1789 @@
+Станок 2.3
+
+Глобальные переменные:
+{attribute 'qualified_only'}
+VAR_GLOBAL
+potentiometer : REAL; // Переменная для хранения значения потенциометра
+//Пульт in
+EncoderA : BOOL; // Сигнал от канала A энкодера
+EncoderB : BOOL; // Сигнал от канала B энкодера
+x0: BOOL;    //делитель на x0
+x1: BOOL;    //делитель на x1
+x10: BOOL;    //делитель на x10
+x100: BOOL;    //делитель на x100
+xyza_x: BOOL;   //выбор оси х
+xyza_y: BOOL;   //выбор оси y
+xyza_z: BOOL;   //выбор оси z
+xyza_a: BOOL;   //выбор оси a
+xyza_1: BOOL;   //выбор оси 1 (запуск стола)                         //новая
+stst: BOOL := FALSE; //стоп стола
+spd_on: BOOL := FALSE; //включение шпинделя                          //новая
+spd_off: BOOL := FALSE;  //стоп старт шпинделя                       //новая
+plus: BOOL := FALSE;  //перемещение вперёд
+minus: BOOL := FALSE;  //перемещение назад
+stop: BOOL := TRUE;   //аварийная остановка                          //новая
+//Пульт out
+led1: BOOL := FALSE;   //лампочка супорта 1(шлифовальный)
+led2: BOOL := FALSE;   //лампочка лампочка 2 (строгальный)
+//станок in
+mode: BOOL := FALSE; //выбор режима работы                              //новая
+rev_l: BOOL;  //концевик разворота в начале стола
+rev_r: BOOL;  //концевик разворота в конце стола
+brake: BOOL; //концевик включения тормоза
+brake_Ampere: BOOL; //шим сигнал с датчика тока тормоза
+brake_Ampere_REAL: REAL; //переменая для хранения значения силы тока тормоза
+alarm_1: BOOL;  //тревога частотника стола
+alarm_2: BOOL;  //тревога частотника шпинделя
+alarm_3: BOOL;  //тревога серводрайвера оси А1
+//станок out
+out_spd_run: BOOL := FALSE;  //включение шпинделя
+out_spd_pul: BOOL := FALSE;  //перемещение оси A1
+out_spd_dir: BOOL := FALSE;  //напрвление оси А1
+out_spd_en: BOOL := TRUE;  //выключение оси А1
+out_st_s1: BOOL := FALSE;  //перемецение стола в начало
+out_st_s2: BOOL := FALSE;  //перемещение стола в конец
+out_st_s3: BOOL := FALSE;  //выбор скоростного режима al2 или al3
+A: BOOL := FALSE;  //перемещение портала вниз
+out_x_r: BOOL := FALSE;  //перемецение супортов на право 
+out_x_l: BOOL := FALSE;  //перемецение супортов на лево
+out_rezec: BOOL := FALSE;  //включение саленойда резака
+out_brake_on: BOOL := FALSE;  //включение тормоза
+out_brake_off: BOOL := FALSE;  //вsключение тормоза
+out_alarm: BOOL := FALSE;  //сигнал аварийноговыключения станка
+END_VAR
+
+Локальные переменные:
+PROGRAM PLC_PRG
+VAR
+run: BOOL := FALSE;
+rez: BOOL := FALSE;
+
+	wasPressed: BOOL;
+	
+	//переменые
+	timerStartedSup : BOOL := FALSE; // Флаг для первой кнопки
+    pressDurationSup : TIME := T#0ms; // Длительность нажатия для первой кнопки
+    wasPressedSup : BOOL := FALSE; // Флаг нажатия для первой кнопки
+
+    timerStartedSpd : BOOL := FALSE; // Флаг для второй кнопки
+    pressDurationSpd : TIME := T#0ms; // Длительность нажатия для второй кнопки
+    wasPressedSpd : BOOL := FALSE; // Флаг нажатия для второй кнопки
+	
+	//переменые энкодера
+	//новые
+	StepCount : INT := 0; // Счетчик шагов
+    LastEncoderA : BOOL := FALSE; // Предыдущее состояние канала A
+    LastEncoderB : BOOL := FALSE; // Предыдущее состояние канала B
+	
+	//сигнал перемецния а1
+	a1r: BOOL := FALSE;
+	a1l: BOOL := FALSE;
+	
+
+
+		//переменые кнопки stst
+		prevKey : BOOL; // предыдущее состояние
+		
+		//переменная для привода
+		previousState: BOOL := FALSE; // Предыдущее состояние
+		currentState: BOOL; // Текущее состояние
+		multiplier: INT;   //общая переменая пропорции
+		multiplier1: INT :=2;  //переменая коэфицента шага привода и энкодера
+		multiplier2: INT;  //переменая множетияля 
+	    timer : TON;             // Таймер для генерации PWM		
+		pulseIndex : INT := 0; // Индекс текущего импульса
+		pulseCount : INT; // Количество импульсов
+		pulseDuration : TIME; // Длительность импульса
+    	pulsePeriod : TIME; // Период импульса (50% скважность)
+		
+		
+	//для генерашии шим
+    timer0 : TON; // Таймер               / для теста
+	TimerInterval: TIME; // Интервал      / для теста
+	qq:BOOL; //управление с потенцеометра / для теста
+	
+	
+	// для вычесления скваженности
+	toggle :BOOL := FALSE; //переменая предыдушего состояния 
+	timer6 : TON; //таймер для счёта
+	t1 : TIME; //точка высокого уровня
+    t2 : TIME; //точка низкого уровня
+    pp1 : TIME; //время высокого уровня
+	pp2 : TIME; //время низкого уровня
+	p:REAL;   //предварительный подчёт скваженности
+	p2:REAL;  //скваженность
+	
+	//зажатие тормоза 
+	brake_ok: BOOL := FALSE;  //тормоз зажат
+	tok : BOOL := FALSE; //измерение скваженности
+	triger1: BOOL :=FALSE; //тригер отключения тормоза 
+	triger2: BOOL :=FALSE;//тригер включения тормоза
+	timer7 : TON; //таймер для счёта
+	
+END_VAR
+
+Программа:
+//Авария
+IF GVL.alarm_1 OR GVL.alarm_2 OR GVL.alarm_3 OR GVL.stop = FALSE THEN
+	GVL.out_alarm := TRUE;
+END_IF
+
+
+// Переключение режимов и индикация
+IF GVL.mode THEN
+	GVL.led1 := TRUE;
+    GVL.led2 := FALSE;
+ELSE
+	GVL.led1 := FALSE;
+    GVL.led2 := TRUE;
+END_IF
+	
+
+// Включение шпинделя
+IF GVL.mode = FALSE THEN
+    IF GVL.spd_on THEN
+        // Если нажата клавиша запуска шпинделя
+		GVL.out_spd_run := TRUE;
+	END_IF
+	IF GVL.spd_off AND run = FALSE THEN
+		GVL.out_spd_run := FALSE;
+	END_IF
+ELSE
+	GVL.out_spd_run := FALSE;
+END_IF
+		
+
+
+//перемещение по оси X
+IF GVL.xyza_x AND run = FALSE THEN
+	IF GVL.plus AND GVL.minus = FALSE THEN
+		GVL.out_x_r:=TRUE;
+		ELSE GVL.out_x_r:=FALSE;
+	END_IF
+		IF GVL.plus  = FALSE AND GVL.minus THEN
+		GVL.out_x_l:=TRUE;
+		ELSE GVL.out_x_l:=FALSE;
+	END_IF
+ELSE
+	GVL.out_x_r:=FALSE;
+	GVL.out_x_l:=FALSE;
+END_IF
+
+//Тормоз!!!!----------------------------------------------------------------
+//для примера генерируем шим тока в пределах нормы (10-30%)
+
+IF GVL.brake_Ampere THEN
+TimerInterval:=T#100MS;
+ELSE
+TimerInterval:=T#900MS;
+END_IF
+IF NOT Timer0.Q THEN
+    Timer0(IN := TRUE, PT := TimerInterval); // Запускаем таймер
+END_IF
+
+IF Timer0.Q THEN
+    //переключаем состояние
+GVL.brake_Ampere := NOT GVL.brake_Ampere;
+    Timer0(IN := FALSE); // Сбрасываем таймер
+END_IF
+
+//проверка алкоритмов при 0 и 100
+//GVL.brake_Ampere := FALSE;
+//GVL.brake_Ampere := TRUE;
+
+// Обработка сигнал только по необходимости
+IF tok THEN
+	//проверка на абсолютное значение (0 и 100)
+	timer6(IN := TRUE, PT := T#2S);	
+	IF toggle <> GVL.brake_Ampere THEN
+		timer6(IN := FALSE);
+		toggle := GVL.brake_Ampere;
+	END_IF
+	IF Timer6.Q THEN
+		IF GVL.brake_Ampere THEN
+			p2:=100;
+		ELSE
+			p2:=0;
+		END_IF
+	END_IF
+
+	//Вычесление скваженности
+	IF GVL.brake_Ampere THEN
+		t1 := TIME();	
+		pp1:=t1-t2;
+		IF qq THEN
+			p2:=p;
+		END_IF
+	ELSE
+		t2 := TIME(); 
+		pp2:=t2-t1;
+		p:=TIME_TO_REAL(pp1)/(TIME_TO_REAL(pp1)+TIME_TO_REAL(pp2))*100;
+	END_IF;
+
+END_IF
+
+
+
+
+
+
+//Тормоз!!!!----------------------------------------------------------------
+
+//перемещение по оси Z
+IF GVL.xyza_z AND run = FALSE THEN
+		//выключение тормоза
+	IF triger1 = FALSE THEN
+		triger2 := FALSE;
+		GVL.out_brake_off := TRUE;
+		GVL.out_brake_on := FALSE;
+			IF NOT GVL.brake THEN
+				timer7(IN := TRUE, PT := T#3S);
+				IF timer7.Q THEN
+					GVL.out_brake_off := FALSE;
+					triger1 := TRUE;
+					timer7(IN := FALSE);
+				END_IF
+			END_IF
+		
+	END_IF
+		
+		
+	IF GVL.plus AND GVL.minus = FALSE THEN
+		GVL.out_z_r:=TRUE;
+		ELSE GVL.out_z_r:=FALSE;
+	END_IF
+		IF GVL.plus  = FALSE AND GVL.minus THEN
+		GVL.out_z_l:=TRUE;
+		ELSE GVL.out_z_l:=FALSE;
+	END_IF
+ELSE
+	GVL.out_z_r:=FALSE;
+	GVL.out_z_l:=FALSE;
+	//включение тормоза
+	IF NOT triger2 THEN
+		tok := TRUE;
+		triger1 := FALSE;
+		GVL.out_brake_on := TRUE;
+		GVL.out_brake_off := FALSE;
+		IF p2>70 THEN
+			IF GVL.brake THEN
+				GVL.out_brake_on := FALSE;		
+				triger2 := TRUE;
+				tok := FALSE;
+				p2 := 0;
+			ELSE
+				GVL.out_brake_on := FALSE;
+				GVL.out_alarm := TRUE;
+				triger2 := TRUE;	
+			END_IF
+		END_IF
+		
+    END_IF 
+END_IF
+
+//перемещение оси А1 
+IF GVL.xyza_a AND run = FALSE THEN
+//перемещение оси А1 кнопками	
+IF GVL.plus AND GVL.minus = FALSE THEN
+		StepCount:=0;
+		a1r:=TRUE;
+	ELSE 
+		a1r:=FALSE;
+	END_IF
+		IF GVL.plus  = FALSE AND GVL.minus THEN
+		StepCount:=0;
+		a1l:=TRUE;
+	ELSE 
+		a1l:=FALSE;
+	END_IF
+
+
+//перемещение оси A1 энкодером
+    // Проверка изменения состояния сигнала EncoderA
+    IF (GVL.EncoderA AND NOT LastEncoderA) THEN
+        // Если EncoderA изменился с LOW на HIGH
+        IF GVL.EncoderB THEN
+            StepCount := StepCount + 1; // Увеличиваем счетчик шагов
+        ELSE
+            StepCount := StepCount - 1; // Уменьшаем счетчик шагов
+        END_IF;
+    END_IF;
+
+    // Проверка изменения состояния сигнала EncoderB
+    IF (GVL.EncoderB AND NOT LastEncoderB) THEN
+        // Если EncoderB изменился с LOW на HIGH
+        IF GVL.EncoderA THEN
+            StepCount := StepCount - 1; // Уменьшаем счетчик шагов
+        ELSE
+            StepCount := StepCount + 1; // Увеличиваем счетчик шагов
+        END_IF;
+    END_IF;
+
+    // Сохранение текущего состояния энкодеров для следующей итерации
+    LastEncoderA := GVL.EncoderA;
+    LastEncoderB := GVL.EncoderB;
+
+    // Задержка для управления скоростью (можно настроить)
+    // WAIT(100); // Задержка в миллисекундах
+	
+
+ELSE
+a1l:=FALSE;
+a1r:=FALSE;
+StepCount:=0;
+//GVL.out_spd_pul := FALSE;
+//GVL.out_spd_dir := FALSE;
+GVL.out_spd_en := TRUE;
+END_IF
+
+
+	
+
+//Управление приводом
+//* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+// Проверяем текущее состояние переменных
+currentState := GVL.x0 OR GVL.x1 OR GVL.x10 OR GVL.x100;
+
+// Если текущее состояние изменилось
+IF currentState <> previousState THEN
+    // Сбрасываем счетчик
+    StepCount := 0;
+END_IF
+// Обновляем предыдущее состояние
+previousState := currentState;
+
+//присвоение множетеля 
+IF GVL.x0 THEN
+multiplier2 :=0;	
+END_IF
+
+IF GVL.x1 THEN
+multiplier2 :=1;	
+END_IF
+
+IF GVL.x10 THEN
+multiplier2 :=10;	
+END_IF
+
+IF GVL.x100 THEN
+multiplier2 :=100;	
+END_IF
+
+
+//перемножение множетилей
+multiplier:=multiplier1*multiplier2;
+
+//вычесление требуемой позиции
+pulseCount:=StepCount*multiplier;
+
+//задаём периуд импульсов
+//вычисляем длительность импульсов
+pulsePeriod := T#1000MS;
+pulseDuration := pulsePeriod/2;
+
+   // Инициализация таймера
+timer(IN := TRUE, PT := pulsePeriod);
+
+
+
+IF a1r THEN
+	pulseIndex:=-1;
+END_IF
+
+IF a1l THEN
+	pulseIndex:=1;
+END_IF
+
+
+
+IF StepCount > 0 OR a1r THEN
+	GVL.out_spd_dir :=FALSE;
+IF pulseIndex < StepCount*multiplier THEN //определяем наличие не выполненых импульсов
+    IF timer.Q THEN  //время истекло
+        GVL.out_spd_pul := NOT GVL.out_spd_pul; // Инвертируем выходной сигнал
+        timer(IN := FALSE); // остановка таймер
+
+        IF GVL.out_spd_pul THEN
+            pulseIndex := pulseIndex + 1; // Увеличиваем индекс
+	
+            IF (pulseIndex MOD multiplier) = 0 THEN
+                StepCount := StepCount - 1; // Вычитаем 1 
+				pulseIndex := pulseIndex - multiplier;
+            END_IF;
+            timer(IN := TRUE, PT := pulseDuration); // Запуск и устанавливка таймер
+        END_IF;
+    END_IF;
+END_IF;
+ELSE
+	GVL.out_spd_dir :=FALSE;
+END_IF
+
+IF StepCount < 0 OR a1l THEN
+	GVL.out_spd_dir :=TRUE;
+IF pulseIndex > StepCount*multiplier THEN //определяем наличие не выполненых импульсов
+    IF timer.Q THEN  //время истекло
+        GVL.out_spd_pul := NOT GVL.out_spd_pul; // Инвертируем выходной сигнал
+        timer(IN := FALSE); // остановка таймер
+
+        IF GVL.out_spd_pul THEN
+            pulseIndex := pulseIndex - 1; // Увеличиваем индекс
+	
+            IF (pulseIndex MOD multiplier) = 0 THEN
+                StepCount := StepCount + 1; // Вычитаем 1 
+				pulseIndex := pulseIndex + multiplier;
+            END_IF;
+            timer(IN := TRUE, PT := pulseDuration); // Запуск и устанавливка таймер
+        END_IF;
+    END_IF;
+END_IF;
+	
+ELSE
+	GVL.out_spd_dir :=FALSE;
+	
+END_IF
+
+
+//**************************************************************************************************   
+//Управление приводом
+
+//если нажата кнопка остановки стола
+IF GVL.stst THEN
+	run:=FALSE;
+	GVL.out_st_s1:=FALSE;
+	GVL.out_st_s2:=FALSE;
+	GVL.out_st_s3:=FALSE;
+END_IF
+
+//перемещение стола
+
+IF run THEN
+	IF GVL.rev_l THEN
+		GVL.out_st_s1:=TRUE;
+		GVL.out_st_s2:=FALSE;
+		GVL.out_st_s3:=TRUE;
+		IF GVL.mode THEN
+		GVL.out_rezec := TRUE;	
+		ELSE
+		GVL.out_rezec := FALSE;
+		END_IF
+	END_IF
+	IF GVL.rev_r THEN
+		GVL.out_st_s1:=FALSE;
+		GVL.out_st_s2:=TRUE;
+		GVL.out_st_s3:=TRUE;
+		GVL.out_rezec := FALSE;
+	END_IF
+END_IF
+IF GVL.xyza_y AND run = FALSE THEN
+
+	IF GVL.plus AND GVL.minus = FALSE AND GVL.rev_r=FALSE THEN
+		GVL.out_st_s1:=TRUE;
+		GVL.out_st_s2:=FALSE;
+		GVL.out_st_s3:=FALSE;	
+	END_IF
+		IF GVL.plus=FALSE AND GVL.minus AND GVL.rev_l=FALSE THEN
+		GVL.out_st_s1:=FALSE;
+		GVL.out_st_s2:=TRUE;
+		GVL.out_st_s3:=FALSE;
+	END_IF
+	IF GVL.plus = FALSE AND GVL.minus = FALSE THEN
+		GVL.out_st_s1:=FALSE;
+		GVL.out_st_s2:=FALSE;
+		GVL.out_st_s3:=FALSE;
+	END_IF
+END_IF
+
+IF GVL.xyza_1 THEN
+	IF GVL.out_spd_run OR GVL.mode THEN
+		IF  GVL.plus AND GVL.minus = FALSE AND GVL.rev_r=FALSE THEN
+			GVL.out_st_s1:=TRUE;
+			GVL.out_st_s2:=FALSE;
+			GVL.out_st_s3:=TRUE;
+			run:=TRUE;
+		END_IF
+			IF GVL.plus=FALSE AND GVL.minus AND GVL.rev_l=FALSE THEN
+			GVL.out_st_s1:=FALSE;
+			GVL.out_st_s2:=TRUE;
+			GVL.out_st_s3:=TRUE;
+			run:=TRUE;
+		END_IF
+	END_IF
+END_IF
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Образец кода:
+{attribute 'qualified_only'}
+VAR_GLOBAL
+potentiometer : REAL; // Переменная для хранения значения потенциометра
+
+// Пульт in
+EncoderA : BOOL; // Сигнал от канала A энкодера
+EncoderB : BOOL; // Сигнал от канала B энкодера
+x0: BOOL;    // Делитель на x0
+x1: BOOL;    // Делитель на x1
+x10: BOOL;   // Делитель на x10
+x100: BOOL;  // Делитель на x100
+xyza_x: BOOL;   // Выбор оси X
+xyza_y: BOOL;   // Выбор оси Y
+xyza_z: BOOL;   // Выбор оси Z
+xyza_a: BOOL;   // Выбор оси A
+xyza_1: BOOL;   // Выбор оси 1 (запуск стола)
+stst: BOOL := FALSE; // Стоп стола
+spd_on: BOOL := FALSE; // Включение шпинделя
+spd_off: BOOL := FALSE; // Стоп шпинделя
+plus: BOOL := FALSE;  // Перемещение вперёд
+minus: BOOL := FALSE; // Перемещение назад
+stop: BOOL := TRUE;   // Аварийная остановка
+
+// Пульт out
+led1: BOOL := FALSE;   // Лампочка супорта 1 (шлифовальный)
+led2: BOOL := FALSE;   // Лампочка 2 (строгальный)
+
+// Станок in
+mode: BOOL := FALSE; // Выбор режима работы
+rev_l: BOOL;  // Концевик разворота в начале стола
+rev_r: BOOL;  // Концевик разворота в конце стола
+brake: BOOL; // Концевик включения тормоза
+brake_Ampere: BOOL; // ШИМ сигнал с датчика тока тормоза
+brake_Ampere_REAL: REAL; // Переменная для хранения значения силы тока тормоза
+alarm_1: BOOL;  // Тревога частотника стола
+alarm_2: BOOL;  // Тревога частотника шпинделя
+alarm_3: BOOL;  // Тревога серводрайвера оси A1
+
+// Станок out
+out_spd_run: BOOL := FALSE;  // Включение шпинделя
+out_spd_pul: BOOL := FALSE;  // Перемещение оси A1
+out_spd_dir: BOOL := FALSE;  // Направление оси A1
+out_spd_en: BOOL := TRUE;  // Выключение оси A1
+out_st_s1: BOOL := FALSE;  // Перемещение стола в начало
+out_st_s2: BOOL := FALSE;  // Перемещение стола в конец
+out_st_s3: BOOL := FALSE;  // Выбор скоростного режима al2 или al3
+out_z_r: BOOL := FALSE;  // Перемещение портала вверх
+out_z_l: BOOL := FALSE;  // Перемещение портала вниз
+out_x_r: BOOL := FALSE;  // Перемещение супортов направо 
+out_x_l: BOOL := FALSE;  // Перемещение супортов налево
+out_rezec: BOOL := FALSE;  // Включение соленоида резака
+out_brake_on: BOOL := FALSE;  // Включение тормоза
+out_brake_off: BOOL := FALSE;  // Выключение тормоза
+out_alarm: BOOL := FALSE;  // Сигнал аварийного выключения станка
+END_VAR
+
+PROGRAM PLC_PRG
+VAR
+run: BOOL := FALSE; // Флаг работы станка
+rez: BOOL := FALSE; // Резервная переменная
+
+// Переменные для управления кнопками
+timerStartedSup : BOOL := FALSE; // Флаг для первой кнопки
+pressDurationSup : TIME := T#0ms; // Длительность нажатия для первой кнопки
+wasPressedSup : BOOL := FALSE; // Флаг нажатия для первой кнопки
+
+timerStartedSpd : BOOL := FALSE; // Флаг для второй кнопки
+pressDurationSpd : TIME := T#0ms; // Длительность нажатия для второй кнопки
+wasPressedSpd : BOOL := FALSE; // Флаг нажатия для второй кнопки
+
+// Переменные энкодера
+StepCount : INT := 0; // Счетчик шагов
+LastEncoderA : BOOL := FALSE; // Предыдущее состояние канала
+LastEncoderA : BOOL := FALSE; // Предыдущее состояние канала A
+LastEncoderB : BOOL := FALSE; // Предыдущее состояние канала B
+
+// Сигналы перемещения оси A1
+a1r: BOOL := FALSE; // Перемещение оси A1 вправо
+a1l: BOOL := FALSE; // Перемещение оси A1 влево
+
+// Переменные для привода
+previousState: BOOL := FALSE; // Предыдущее состояние
+currentState: BOOL; // Текущее состояние
+multiplier: INT;   // Общая переменная пропорции
+multiplier1: INT := 2;  // Переменная коэффициента шага привода и энкодера
+multiplier2: INT;  // Переменная множителя 
+timer : TON;       // Таймер для генерации PWM		
+pulseIndex : INT := 0; // Индекс текущего импульса
+pulseCount : INT; // Количество импульсов
+pulseDuration : TIME; // Длительность импульса
+pulsePeriod : TIME; // Период импульса (50% скважность)
+
+// Для генерации ШИМ
+timer0 : TON; // Таймер для теста
+TimerInterval: TIME; // Интервал для теста
+qq: BOOL; // Управление с потенциометра для теста
+
+// Для вычисления скважности
+toggle : BOOL := FALSE; // Переменная предыдущего состояния 
+timer6 : TON; // Таймер для счёта
+t1 : TIME; // Точка высокого уровня
+t2 : TIME; // Точка низкого уровня
+pp1 : TIME; // Время высокого уровня
+pp2 : TIME; // Время низкого уровня
+p: REAL;   // Предварительный подсчет скважности
+p2: REAL;  // Скважность
+
+// Зажатие тормоза 
+brake_ok: BOOL := FALSE;  // Тормоз зажат
+tok : BOOL := FALSE; // Измерение скважности
+triger1: BOOL := FALSE; // Триггер отключения тормоза 
+triger2: BOOL := FALSE; // Триггер включения тормоза
+timer7 : TON; // Таймер для счёта
+
+END_VAR
+
+// Программа
+// Аварийная сигнализация
+IF GVL.alarm_1 OR GVL.alarm_2 OR GVL.alarm_3 OR GVL.stop = FALSE THEN
+    GVL.out_alarm := TRUE; // Включение аварийного сигнала
+END_IF
+
+// Переключение режимов и индикация
+IF GVL.mode THEN
+    GVL.led1 := TRUE; // Включение первой лампочки
+    GVL.led2 := FALSE; // Выключение второй лампочки
+ELSE
+    GVL.led1 := FALSE; // Выключение первой лампочки
+    GVL.led2 := TRUE; // Включение второй лампочки
+END_IF
+
+// Включение шпинделя
+IF GVL.mode = FALSE THEN
+    IF GVL.spd_on THEN
+        GVL.out_spd_run := TRUE; // Включение шпинделя
+    END_IF
+    IF GVL.spd_off AND run = FALSE THEN
+        GVL.out_spd_run := FALSE; // Остановка шпинделя
+    END_IF
+ELSE
+    GVL.out_spd_run := FALSE; // Отключение шпинделя в режиме работы
+END_IF
+
+// Перемещение по оси X
+IF GVL.xyza_x AND run = FALSE THEN
+    IF GVL.plus AND GVL.minus = FALSE THEN
+        GVL.out_x_r := TRUE; // Перемещение вправо
+    ELSE 
+        GVL.out_x_r := FALSE; // Остановка перемещения вправо
+    END_IF
+    IF GVL.plus = FALSE AND GVL.minus THEN
+        GVL.out_x_l := TRUE; // Перемещение влево
+    ELSE 
+        GVL.out_x_l := FALSE; // Остановка перемещения влево
+    END_IF
+ELSE
+    GVL.out_x_r := FALSE; // Остановка перемещения вправо
+    GVL.out_x_l := FALSE; // Остановка перемещения влево
+END_IF
+
+Продолжи улучшать комментарии к коду
+Код:
+//Тормоз!!!!----------------------------------------------------------------
+//для примера генерируем шим тока в пределах нормы (10-30%)
+
+IF GVL.brake_Ampere THEN
+TimerInterval:=T#100MS;
+ELSE
+TimerInterval:=T#900MS;
+END_IF
+IF NOT Timer0.Q THEN
+    Timer0(IN := TRUE, PT := TimerInterval); // Запускаем таймер
+END_IF
+
+IF Timer0.Q THEN
+    //переключаем состояние
+GVL.brake_Ampere := NOT GVL.brake_Ampere;
+    Timer0(IN := FALSE); // Сбрасываем таймер
+END_IF
+
+//проверка алкоритмов при 0 и 100
+//GVL.brake_Ampere := FALSE;
+//GVL.brake_Ampere := TRUE;
+
+// Обработка сигнал только по необходимости
+IF tok THEN
+	//проверка на абсолютное значение (0 и 100)
+	timer6(IN := TRUE, PT := T#2S);	
+	IF toggle <> GVL.brake_Ampere THEN
+		timer6(IN := FALSE);
+		toggle := GVL.brake_Ampere;
+	END_IF
+	IF Timer6.Q THEN
+		IF GVL.brake_Ampere THEN
+			p2:=100;
+		ELSE
+			p2:=0;
+		END_IF
+	END_IF
+
+	//Вычесление скваженности
+	IF GVL.brake_Ampere THEN
+		t1 := TIME();	
+		pp1:=t1-t2;
+		IF qq THEN
+			p2:=p;
+		END_IF
+	ELSE
+		t2 := TIME(); 
+		pp2:=t2-t1;
+		p:=TIME_TO_REAL(pp1)/(TIME_TO_REAL(pp1)+TIME_TO_REAL(pp2))*100;
+	END_IF;
+
+END_IF
+
+
+
+
+
+
+//Тормоз!!!!----------------------------------------------------------------
+
+//перемещение по оси Z
+IF GVL.xyza_z AND run = FALSE THEN
+		//выключение тормоза
+	IF triger1 = FALSE THEN
+		triger2 := FALSE;
+		GVL.out_brake_off := TRUE;
+		GVL.out_brake_on := FALSE;
+			IF NOT GVL.brake THEN
+				timer7(IN := TRUE, PT := T#3S);
+				IF timer7.Q THEN
+					GVL.out_brake_off := FALSE;
+					triger1 := TRUE;
+					timer7(IN := FALSE);
+				END_IF
+			END_IF
+		
+	END_IF
+		
+		
+	IF GVL.plus AND GVL.minus = FALSE THEN
+		GVL.out_z_r:=TRUE;
+		ELSE GVL.out_z_r:=FALSE;
+	END_IF
+		IF GVL.plus  = FALSE AND GVL.minus THEN
+		GVL.out_z_l:=TRUE;
+		ELSE GVL.out_z_l:=FALSE;
+	END_IF
+ELSE
+	GVL.out_z_r:=FALSE;
+	GVL.out_z_l:=FALSE;
+	//включение тормоза
+	IF NOT triger2 THEN
+		tok := TRUE;
+		triger1 := FALSE;
+		GVL.out_brake_on := TRUE;
+		GVL.out_brake_off := FALSE;
+		IF p2>70 THEN
+			IF GVL.brake THEN
+				GVL.out_brake_on := FALSE;		
+				triger2 := TRUE;
+				tok := FALSE;
+				p2 := 0;
+			ELSE
+				GVL.out_brake_on := FALSE;
+				GVL.out_alarm := TRUE;
+				triger2 := TRUE;	
+			END_IF
+		END_IF
+		
+    END_IF 
+END_IF
+
+//перемещение оси А1 
+IF GVL.xyza_a AND run = FALSE THEN
+//перемещение оси А1 кнопками	
+IF GVL.plus AND GVL.minus = FALSE THEN
+		StepCount:=0;
+		a1r:=TRUE;
+	ELSE 
+		a1r:=FALSE;
+	END_IF
+		IF GVL.plus  = FALSE AND GVL.minus THEN
+		StepCount:=0;
+		a1l:=TRUE;
+	ELSE 
+		a1l:=FALSE;
+	END_IF
+
+
+//перемещение оси A1 энкодером
+    // Проверка изменения состояния сигнала EncoderA
+    IF (GVL.EncoderA AND NOT LastEncoderA) THEN
+        // Если EncoderA изменился с LOW на HIGH
+        IF GVL.EncoderB THEN
+            StepCount := StepCount + 1; // Увеличиваем счетчик шагов
+        ELSE
+            StepCount := StepCount - 1; // Уменьшаем счетчик шагов
+        END_IF;
+    END_IF;
+
+    // Проверка изменения состояния сигнала EncoderB
+    IF (GVL.EncoderB AND NOT LastEncoderB) THEN
+        // Если EncoderB изменился с LOW на HIGH
+        IF GVL.EncoderA THEN
+            StepCount := StepCount - 1; // Уменьшаем счетчик шагов
+        ELSE
+            StepCount := StepCount + 1; // Увеличиваем счетчик шагов
+        END_IF;
+    END_IF;
+
+    // Сохранение текущего состояния энкодеров для следующей итерации
+    LastEncoderA := GVL.EncoderA;
+    LastEncoderB := GVL.EncoderB;
+
+    // Задержка для управления скоростью (можно настроить)
+    // WAIT(100); // Задержка в миллисекундах
+	
+
+ELSE
+a1l:=FALSE;
+a1r:=FALSE;
+StepCount:=0;
+//GVL.out_spd_pul := FALSE;
+//GVL.out_spd_dir := FALSE;
+GVL.out_spd_en := TRUE;
+END_IF
+
+
+	
+
+//Управление приводом
+//* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+// Проверяем текущее состояние переменных
+currentState := GVL.x0 OR GVL.x1 OR GVL.x10 OR GVL.x100;
+
+// Если текущее состояние изменилось
+IF currentState <> previousState THEN
+    // Сбрасываем счетчик
+    StepCount := 0;
+END_IF
+// Обновляем предыдущее состояние
+previousState := currentState;
+
+//присвоение множетеля 
+IF GVL.x0 THEN
+multiplier2 :=0;	
+END_IF
+
+IF GVL.x1 THEN
+multiplier2 :=1;	
+END_IF
+
+IF GVL.x10 THEN
+multiplier2 :=10;	
+END_IF
+
+IF GVL.x100 THEN
+multiplier2 :=100;	
+END_IF
+
+
+//перемножение множетилей
+multiplier:=multiplier1*multiplier2;
+
+//вычесление требуемой позиции
+pulseCount:=StepCount*multiplier;
+
+//задаём периуд импульсов
+//вычисляем длительность импульсов
+pulsePeriod := T#1000MS;
+pulseDuration := pulsePeriod/2;
+
+   // Инициализация таймера
+timer(IN := TRUE, PT := pulsePeriod);
+
+
+
+IF a1r THEN
+	pulseIndex:=-1;
+END_IF
+
+IF a1l THEN
+	pulseIndex:=1;
+END_IF
+
+
+
+IF StepCount > 0 OR a1r THEN
+	GVL.out_spd_dir :=FALSE;
+IF pulseIndex < StepCount*multiplier THEN //определяем наличие не выполненых импульсов
+    IF timer.Q THEN  //время истекло
+        GVL.out_spd_pul := NOT GVL.out_spd_pul; // Инвертируем выходной сигнал
+        timer(IN := FALSE); // остановка таймер
+
+        IF GVL.out_spd_pul THEN
+            pulseIndex := pulseIndex + 1; // Увеличиваем индекс
+	
+            IF (pulseIndex MOD multiplier) = 0 THEN
+                StepCount := StepCount - 1; // Вычитаем 1 
+				pulseIndex := pulseIndex - multiplier;
+            END_IF;
+            timer(IN := TRUE, PT := pulseDuration); // Запуск и устанавливка таймер
+        END_IF;
+    END_IF;
+END_IF;
+ELSE
+	GVL.out_spd_dir :=FALSE;
+END_IF
+
+IF StepCount < 0 OR a1l THEN
+	GVL.out_spd_dir :=TRUE;
+IF pulseIndex > StepCount*multiplier THEN //определяем наличие не выполненых импульсов
+    IF timer.Q THEN  //время истекло
+        GVL.out_spd_pul := NOT GVL.out_spd_pul; // Инвертируем выходной сигнал
+        timer(IN := FALSE); // остановка таймер
+
+        IF GVL.out_spd_pul THEN
+            pulseIndex := pulseIndex - 1; // Увеличиваем индекс
+	
+            IF (pulseIndex MOD multiplier) = 0 THEN
+                StepCount := StepCount + 1; // Вычитаем 1 
+				pulseIndex := pulseIndex + multiplier;
+            END_IF;
+            timer(IN := TRUE, PT := pulseDuration); // Запуск и устанавливка таймер
+        END_IF;
+    END_IF;
+END_IF;
+	
+ELSE
+	GVL.out_spd_dir :=FALSE;
+	
+END_IF
+
+
+//**************************************************************************************************   
+//Управление приводом
+
+//если нажата кнопка остановки стола
+IF GVL.stst THEN
+	run:=FALSE;
+	GVL.out_st_s1:=FALSE;
+	GVL.out_st_s2:=FALSE;
+	GVL.out_st_s3:=FALSE;
+END_IF
+
+//перемещение стола
+
+IF run THEN
+	IF GVL.rev_l THEN
+		GVL.out_st_s1:=TRUE;
+		GVL.out_st_s2:=FALSE;
+		GVL.out_st_s3:=TRUE;
+		IF GVL.mode THEN
+		GVL.out_rezec := TRUE;	
+		ELSE
+		GVL.out_rezec := FALSE;
+		END_IF
+	END_IF
+	IF GVL.rev_r THEN
+		GVL.out_st_s1:=FALSE;
+		GVL.out_st_s2:=TRUE;
+		GVL.out_st_s3:=TRUE;
+		GVL.out_rezec := FALSE;
+	END_IF
+END_IF
+IF GVL.xyza_y AND run = FALSE THEN
+
+	IF GVL.plus AND GVL.minus = FALSE AND GVL.rev_r=FALSE THEN
+		GVL.out_st_s1:=TRUE;
+		GVL.out_st_s2:=FALSE;
+		GVL.out_st_s3:=FALSE;	
+	END_IF
+		IF GVL.plus=FALSE AND GVL.minus AND GVL.rev_l=FALSE THEN
+		GVL.out_st_s1:=FALSE;
+		GVL.out_st_s2:=TRUE;
+		GVL.out_st_s3:=FALSE;
+	END_IF
+	IF GVL.plus = FALSE AND GVL.minus = FALSE THEN
+		GVL.out_st_s1:=FALSE;
+		GVL.out_st_s2:=FALSE;
+		GVL.out_st_s3:=FALSE;
+	END_IF
+END_IF
+
+IF GVL.xyza_1 THEN
+	IF GVL.out_spd_run OR GVL.mode THEN
+		IF  GVL.plus AND GVL.minus = FALSE AND GVL.rev_r=FALSE THEN
+			GVL.out_st_s1:=TRUE;
+			GVL.out_st_s2:=FALSE;
+			GVL.out_st_s3:=TRUE;
+			run:=TRUE;
+		END_IF
+			IF GVL.plus=FALSE AND GVL.minus AND GVL.rev_l=FALSE THEN
+			GVL.out_st_s1:=FALSE;
+			GVL.out_st_s2:=TRUE;
+			GVL.out_st_s3:=TRUE;
+			run:=TRUE;
+		END_IF
+	END_IF
+END_IF
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+VAR_GLOBAL
+potentiometer : REAL; // Переменная для хранения значения потенциометра
+
+// Пульт in
+EncoderA : BOOL; // Сигнал от канала A энкодера
+EncoderB : BOOL; // Сигнал от канала B энкодера
+x0: BOOL;    // Делитель на x0
+x1: BOOL;    // Делитель на x1
+x10: BOOL;   // Делитель на x10
+x100: BOOL;  // Делитель на x100
+xyza_x: BOOL;   // Выбор оси X
+xyza_y: BOOL;   // Выбор оси Y
+xyza_z: BOOL;   // Выбор оси Z
+xyza_a: BOOL;   // Выбор оси A1
+xyza_1: BOOL;   // Выбор оси 1 (запуск стола)
+stst: BOOL := FALSE; // Стоп стола
+spd_on: BOOL := FALSE; // Включение шпинделя
+spd_off: BOOL := FALSE; // Стоп шпинделя
+plus: BOOL := FALSE;  // Перемещение вперёд
+minus: BOOL := FALSE; // Перемещение назад
+stop: BOOL := TRUE;   // Аварийная остановка
+
+// Пульт out
+led1: BOOL := FALSE;   // Лампочка супорта 1 (шлифовальный)
+led2: BOOL := FALSE;   // Лампочка 2 (строгальный)
+
+// Станок in
+mode: BOOL := FALSE; // Выбор режима работы
+rev_l: BOOL;  // Концевик разворота в начале стола
+rev_r: BOOL;  // Концевик разворота в конце стола
+brake: BOOL; // Концевик включения тормоза
+brake_Ampere: BOOL; // ШИМ сигнал с датчика тока тормоза
+brake_Ampere_REAL: REAL; // Переменная для хранения значения силы тока тормоза
+alarm_1: BOOL;  // Тревога частотника стола
+alarm_2: BOOL;  // Тревога частотника шпинделя
+alarm_3: BOOL;  // Тревога серводрайвера оси A1
+
+// Станок out
+out_spd_run: BOOL := FALSE;  // Включение шпинделя
+out_spd_pul: BOOL := FALSE;  // Перемещение оси A1
+out_spd_dir: BOOL := FALSE;  // Направление оси A1
+out_spd_en: BOOL := TRUE;  // Выключение оси A1
+out_st_s1: BOOL := FALSE;  // Перемещение стола в начало
+out_st_s2: BOOL := FALSE;  // Перемещение стола в конец
+out_st_s3: BOOL := FALSE;  // Выбор скоростного режима al2 или al3
+out_z_r: BOOL := FALSE;  // Перемещение портала вверх
+out_z_l: BOOL := FALSE;  // Перемещение портала вниз
+out_x_r: BOOL := FALSE;  // Перемещение супортов направо 
+out_x_l: BOOL := FALSE;  // Перемещение супортов налево
+out_rezec: BOOL := FALSE;  // Включение соленоида резака
+out_brake_on: BOOL := FALSE;  // Включение тормоза
+out_brake_off: BOOL := FALSE;  // Выключение тормоза
+out_alarm: BOOL := FALSE;  // Сигнал аварийного выключения станка
+END_VAR
+
+PROGRAM PLC_PRG
+VAR
+run: BOOL := FALSE; // Флаг работы станка
+rez: BOOL := FALSE; // Резервная переменная
+
+// Переменные для управления кнопками
+timerStartedSup : BOOL := FALSE; // Флаг для первой кнопки
+pressDurationSup : TIME := T#0ms; // Длительность нажатия для первой кнопки
+wasPressedSup : BOOL := FALSE; // Флаг нажатия для первой кнопки
+
+timerStartedSpd : BOOL := FALSE; // Флаг для второй кнопки
+pressDurationSpd : TIME := T#0ms; // Длительность нажатия для второй кнопки
+wasPressedSpd : BOOL := FALSE; // Флаг нажатия для второй кнопки
+
+// Переменные энкодера
+StepCount : INT := 0; // Счетчик шагов
+LastEncoderA : BOOL := FALSE; // Предыдущее состояние канала
+LastEncoderA : BOOL := FALSE; // Предыдущее состояние канала A
+LastEncoderB : BOOL := FALSE; // Предыдущее состояние канала B
+
+// Сигналы перемещения оси A1
+a1r: BOOL := FALSE; // Перемещение оси A1 вправо
+a1l: BOOL := FALSE; // Перемещение оси A1 влево
+
+// Переменные для привода
+previousState: BOOL := FALSE; // Предыдущее состояние
+currentState: BOOL; // Текущее состояние
+multiplier: INT;   // Общая переменная пропорции
+multiplier1: INT := 2;  // Переменная коэффициента шага привода и энкодера
+multiplier2: INT;  // Переменная множителя 
+timer : TON;       // Таймер для генерации PWM		
+pulseIndex : INT := 0; // Индекс текущего импульса
+pulseCount : INT; // Количество импульсов
+pulseDuration : TIME; // Длительность импульса
+pulsePeriod : TIME; // Период импульса (50% скважность)
+
+// Для генерации ШИМ
+timer0 : TON; // Таймер для теста
+TimerInterval: TIME; // Интервал для теста
+qq: BOOL; // Управление с потенциометра для теста
+
+// Для вычисления скважности
+toggle : BOOL := FALSE; // Переменная предыдущего состояния 
+timer6 : TON; // Таймер для счёта
+t1 : TIME; // Точка высокого уровня
+t2 : TIME; // Точка низкого уровня
+pp1 : TIME; // Время высокого уровня
+pp2 : TIME; // Время низкого уровня
+p: REAL;   // Предварительный подсчет скважности
+p2: REAL;  // Скважность
+
+// Зажатие тормоза 
+brake_ok: BOOL := FALSE;  // Тормоз зажат
+tok : BOOL := FALSE; // Измерение скважности
+triger1: BOOL := FALSE; // Триггер отключения тормоза 
+triger2: BOOL := FALSE; // Триггер включения тормоза
+timer7 : TON; // Таймер для счёта
+
+END_VAR
+
+// Программа
+// Аварийная сигнализация
+IF GVL.alarm_1 OR GVL.alarm_2 OR GVL.alarm_3 OR GVL.stop = FALSE THEN
+    GVL.out_alarm := TRUE; // Включение аварийного сигнала
+END_IF
+
+// Переключение режимов и индикация
+IF GVL.mode THEN
+    GVL.led1 := TRUE; // Включение первой лампочки
+    GVL.led2 := FALSE; // Выключение второй лампочки
+ELSE
+    GVL.led1 := FALSE; // Выключение первой лампочки
+    GVL.led2 := TRUE; // Включение второй лампочки
+END_IF
+
+// Включение шпинделя
+IF GVL.mode = FALSE THEN
+    IF GVL.spd_on THEN
+        GVL.out_spd_run := TRUE; // Включение шпинделя
+    END_IF
+    IF GVL.spd_off AND run = FALSE THEN
+        GVL.out_spd_run := FALSE; // Остановка шпинделя
+    END_IF
+ELSE
+    GVL.out_spd_run := FALSE; // Отключение шпинделя в режиме работы
+END_IF
+
+// Перемещение по оси X
+IF GVL.xyza_x AND run = FALSE THEN
+    IF GVL.plus AND GVL.minus = FALSE THEN
+        GVL.out_x_r := TRUE; // Перемещение вправо
+    ELSE 
+        GVL.out_x_r := FALSE; // Остановка перемещения вправо
+    END_IF
+    IF GVL.plus = FALSE AND GVL.minus THEN
+        GVL.out_x_l := TRUE; // Перемещение влево
+    ELSE 
+        GVL.out_x_l := FALSE; // Остановка перемещения влево
+    END_IF
+ELSE
+    GVL.out_x_r := FALSE; // Остановка перемещения вправо
+    GVL.out_x_l := FALSE; // Остановка перемещения влево
+END_IF
+
+
+
+// Генерация ШИМ (широтно-импульсной модуляции) для управления током тормоза в пределах нормы (10-30%)
+
+IF GVL.brake_Ampere THEN
+    TimerInterval := T#100MS; // Устанавливаем интервал таймера на 100 мс, если тормоз активен
+ELSE
+    TimerInterval := T#900MS; // Устанавливаем интервал таймера на 900 мс, если тормоз не активен
+END_IF
+
+IF NOT Timer0.Q THEN
+    Timer0(IN := TRUE, PT := TimerInterval); // Запускаем таймер с заданным интервалом
+END_IF
+
+IF Timer0.Q THEN
+    // Переключаем состояние сигнала тормоза
+    GVL.brake_Ampere := NOT GVL.brake_Ampere; // Инвертируем текущее состояние тормоза
+    Timer0(IN := FALSE); // Сбрасываем таймер после переключения состояния
+END_IF
+
+// Проверка алгоритмов при крайних значениях (0 и 100)
+// GVL.brake_Ampere := FALSE; // Пример: установка тормоза в неактивное состояние
+// GVL.brake_Ampere := TRUE;  // Пример: установка тормоза в активное состояние
+
+// Обработка сигнала только по необходимости
+IF tok THEN
+    // Проверка на абсолютное значение (0 и 100)
+    timer6(IN := TRUE, PT := T#2S); // Запускаем таймер на 2 секунды
+    IF toggle <> GVL.brake_Ampere THEN
+        timer6(IN := FALSE); // Останавливаем таймер, если состояние тормоза изменилось
+        toggle := GVL.brake_Ampere; // Обновляем предыдущее состояние тормоза
+    END_IF
+    IF Timer6.Q THEN
+        // Устанавливаем значение скважности в зависимости от состояния тормоза
+        IF GVL.brake_Ampere THEN
+            p2 := 100; // Полная скважность (100%) при активном тормозе
+        ELSE
+            p2 := 0; // Нулевая скважность (0%) при неактивном тормозе
+        END_IF
+    END_IF
+
+    // Вычисление скважности
+    IF GVL.brake_Ampere THEN
+        t1 := TIME(); // Запоминаем текущее время при активном тормозе
+        pp1 := t1 - t2; // Вычисляем время высокого уровня
+        IF qq THEN
+            p2 := p; // Если управление с потенциометра активно, устанавливаем значение скважности
+        END_IF
+    ELSE
+        t2 := TIME(); // Запоминаем текущее время при неактивном тормозе
+        pp2 := t2 - t1; // Вычисляем время низкого уровня
+        // Рассчитываем скважность как отношение времени высокого уровня к общему времени
+        p := TIME_TO_REAL(pp1) / (TIME_TO_REAL(pp1) + TIME_TO_REAL(pp2)) * 100;
+    END_IF;
+END_IF
+
+// Перемещение по оси Z
+IF GVL.xyza_z AND run = FALSE THEN
+    // Выключение тормоза перед перемещением
+    IF triger1 = FALSE THEN
+        triger2 := FALSE; // Сбрасываем триггер включения тормоза
+        GVL.out_brake_off := TRUE; // Включаем сигнал на отключение тормоза
+        GVL.out_brake_on := FALSE; // Отключаем сигнал на включение тормоза
+        IF NOT GVL.brake THEN
+            timer7(IN := TRUE, PT := T#3S); // Запускаем таймер на 3 секунды для задержки
+            IF timer7.Q THEN
+                GVL.out_brake_off := FALSE; // Отключаем сигнал на отключение тормоза
+                triger1 := TRUE; // Устанавливаем триггер включения тормоза
+                timer7(IN := FALSE); // Сбрасываем таймер
+            END_IF
+        END_IF
+    END_IF
+
+    // Управление перемещением по оси Z
+    IF GVL.plus AND GVL.minus = FALSE THEN
+        GVL.out_z_r := TRUE; // Включаем движение оси Z вправо
+    ELSE 
+        GVL.out_z_r := FALSE; // Останавливаем движение оси Z вправо
+    END_IF
+
+    IF GVL.plus = FALSE AND GVL.minus THEN
+        GVL.out_z_l := TRUE
+
+
+// Если ось Z не активна и не происходит движение
+ELSE
+    GVL.out_z_r := FALSE; // Останавливаем движение оси Z вправо
+    GVL.out_z_l := FALSE; // Останавливаем движение оси Z влево
+
+    // Включение тормоза, если триггер не активен
+    IF NOT triger2 THEN
+        tok := TRUE; // Устанавливаем флаг для измерения скважности
+        triger1 := FALSE; // Сбрасываем триггер включения тормоза
+        GVL.out_brake_on := TRUE; // Включаем сигнал на включение тормоза
+        GVL.out_brake_off := FALSE; // Отключаем сигнал на отключение тормоза
+
+        // Проверка на превышение скважности
+        IF p2 > 70 THEN
+            IF GVL.brake THEN
+                GVL.out_brake_on := FALSE; // Отключаем тормоз
+                triger2 := TRUE; // Устанавливаем триггер отключения тормоза
+                tok := FALSE; // Сбрасываем флаг измерения скважности
+                p2 := 0; // Сбрасываем значение скважности
+            ELSE
+                GVL.out_brake_on := FALSE; // Отключаем тормоз
+                GVL.out_alarm := TRUE; // Включаем сигнал тревоги
+                triger2 := TRUE; // Устанавливаем триггер отключения тормоза
+            END_IF
+        END_IF
+    END_IF 
+END_IF
+
+// Перемещение оси A1 
+IF GVL.xyza_a AND run = FALSE THEN
+    // Перемещение оси A1 кнопками	
+    IF GVL.plus AND GVL.minus = FALSE THEN
+        StepCount := 0; // Сбрасываем счетчик шагов
+        a1r := TRUE; // Включаем движение оси A1 вправо
+    ELSE 
+        a1r := FALSE; // Останавливаем движение оси A1 вправо
+    END_IF
+
+    IF GVL.plus = FALSE AND GVL.minus THEN
+        StepCount := 0; // Сбрасываем счетчик шагов
+        a1l := TRUE; // Включаем движение оси A1 влево
+    ELSE 
+        a1l := FALSE; // Останавливаем движение оси A1 влево
+    END_IF
+
+    // Перемещение оси A1 с помощью энкодера
+    // Проверка изменения состояния сигнала EncoderA
+    IF (GVL.EncoderA AND NOT LastEncoderA) THEN
+        // Если EncoderA изменился с LOW на HIGH
+        IF GVL.EncoderB THEN
+            StepCount := StepCount + 1; // Увеличиваем счетчик шагов
+        ELSE
+            StepCount := StepCount - 1; // Уменьшаем счетчик шагов
+        END_IF;
+    END_IF;
+
+    // Проверка изменения состояния сигнала EncoderB
+    IF (GVL.EncoderB AND NOT LastEncoderB) THEN
+        // Если EncoderB изменился с LOW на HIGH
+        IF GVL.EncoderA THEN
+            StepCount := StepCount - 1; // Уменьшаем счетчик шагов
+        ELSE
+            StepCount := StepCount + 1; // Увеличиваем счетчик шагов
+        END_IF;
+    END_IF;
+
+    // Сохранение текущего состояния энкодеров для следующей итерации
+    LastEncoderA := GVL.EncoderA;
+    LastEncoderB := GVL.EncoderB;
+
+    // Задержка для управления скоростью (можно настроить)
+    // WAIT(100); // Задержка в миллисекундах
+
+ELSE
+    a1l := FALSE; // Останавливаем движение оси A1 влево
+    a1r := FALSE; // Останавливаем движение оси A1 вправо
+    StepCount := 0; // Сбрасываем счетчик шагов
+    // GVL.out_spd_pul := FALSE; // Отключаем сигнал на импульсы
+    // GVL.out_spd_dir := FALSE; // Отключаем направление
+    GVL.out_spd_en := TRUE; // Включаем привод
+END_IF
+
+// Управление приводом
+// Проверяем текущее состояние переменных
+Current
+
+// Проверяем текущее состояние переменных
+currentState := GVL.x0 OR GVL.x1 OR GVL.x10 OR GVL.x100; // Определяем текущее состояние делителей
+
+// Если текущее состояние изменилось
+IF currentState <> previousState THEN
+    // Сбрасываем счетчик шагов, если состояние изменилось
+    StepCount := 0; 
+END_IF
+
+// Обновляем предыдущее состояние для следующей итерации
+previousState := currentState;
+
+// Присвоение множителя в зависимости от состояния делителей
+IF GVL.x0 THEN
+    multiplier2 := 0; // Если делитель x0 активен, устанавливаем множитель в 0
+END_IF
+
+IF GVL.x1 THEN
+    multiplier2 := 1; // Если делитель x1 активен, устанавливаем множитель в 1
+END_IF
+
+IF GVL.x10 THEN
+    multiplier2 := 10; // Если делитель x10 активен, устанавливаем множитель в 10
+END_IF
+
+IF GVL.x100 THEN
+    multiplier2 := 100; // Если делитель x100 активен, устанавливаем множитель в 100
+END_IF
+
+// Перемножение множителей для вычисления общего множителя
+multiplier := multiplier1 * multiplier2; // Общий множитель для расчета требуемой позиции
+
+// Вычисление требуемой позиции на основе счетчика шагов
+pulseCount := StepCount * multiplier; // Количество импульсов для привода
+
+// Задаем период импульсов
+pulsePeriod := T#1000MS; // Период импульсов (1 секунда)
+pulseDuration := pulsePeriod / 2; // Длительность импульса (50% скважность)
+
+// Инициализация таймера
+timer(IN := TRUE, PT := pulsePeriod); // Запускаем таймер с заданным периодом
+
+// Установка индекса импульсов в зависимости от направления движения
+IF a1r THEN
+    pulseIndex := -1; // Устанавливаем индекс для движения вправо
+END_IF
+
+IF a1l THEN
+    pulseIndex := 1; // Устанавливаем индекс для движения влево
+END_IF
+
+// Управление движением оси A1 вправо
+IF StepCount > 0 OR a1r THEN
+    GVL.out_spd_dir := FALSE; // Устанавливаем направление движения вправо
+    IF pulseIndex < StepCount * multiplier THEN // Проверяем наличие не выполненных импульсов
+        IF timer.Q THEN // Если время истекло
+            GVL.out_spd_pul := NOT GVL.out_spd_pul; // Инвертируем выходной сигнал для генерации импульсов
+            timer(IN := FALSE); // Останавливаем таймер
+
+            IF GVL.out_spd_pul THEN
+                pulseIndex := pulseIndex + 1; // Увеличиваем индекс импульсов
+
+                // Проверяем, нужно ли уменьшить счетчик шагов
+                IF (pulseIndex MOD multiplier) = 0 THEN
+                    StepCount := StepCount - 1; // Уменьшаем счетчик шагов
+                    pulseIndex := pulseIndex - multiplier; // Корректируем индекс
+                END_IF;
+                timer(IN := TRUE, PT := pulseDuration); // Запускаем таймер для следующего импульса
+            END_IF;
+        END_IF;
+    END_IF;
+ELSE
+    GVL.out_spd_dir := FALSE; // Останавливаем движение, если нет шагов
+END_IF
+
+// Управление движением оси A1 влево
+IF StepCount < 0 OR a1l THEN
+    GVL.out_spd_dir := TRUE; // Устанавливаем направление движения влево
+    IF pulseIndex > StepCount * multiplier THEN // Проверяем наличие не выполненных импульсов
+        IF timer.Q THEN // Если время истекло
+            GVL.out_spd_pul := NOT GVL.out_spd_pul; // Инвертируем выходной сигнал для генерации импульсов
+            timer(IN := FALSE); // Останавливаем таймер
+
+            IF GVL.out_spd_pul THEN
+                pulseIndex := pulseIndex - 1; // Уменьшаем индекс импульсов
+
+                // Проверяем, нужно ли увеличить счетчик шагов
+                IF (pulseIndex MOD multiplier) = 0 THEN
+                    StepCount := StepCount + 1; // Увеличиваем счетчик шагов
+                    pulseIndex := pulseIndex + multiplier; // Корректируем индекс
+                END_IF;
+                timer(IN := TRUE, PT := pulseDuration); // Запускаем таймер для следующего импульса
+            END
+
+        END_IF;
+    END_IF;
+ELSE
+    GVL.out_spd_dir := FALSE; // Останавливаем движение, если нет шагов
+END_IF
+
+   
+// Управление приводом
+
+// Если нажата кнопка остановки стола
+IF GVL.stst THEN
+    run := FALSE; // Останавливаем работу станка
+    GVL.out_st_s1 := FALSE; // Отключаем сигнал на перемещение стола в начало
+    GVL.out_st_s2 := FALSE; // Отключаем сигнал на перемещение стола в конец
+    GVL.out_st_s3 := FALSE; // Отключаем сигнал на выбор скоростного режима
+END_IF
+
+// Перемещение стола
+IF run THEN
+    // Если активен сигнал на перемещение влево
+    IF GVL.rev_l THEN
+        GVL.out_st_s1 := TRUE; // Включаем сигнал на перемещение стола в начало
+        GVL.out_st_s2 := FALSE; // Отключаем сигнал на перемещение стола в конец
+        GVL.out_st_s3 := TRUE; // Включаем сигнал на выбор скоростного режима
+        IF GVL.mode THEN
+            GVL.out_rezec := TRUE; // Включаем резак, если активен режим
+        ELSE
+            GVL.out_rezec := FALSE; // Отключаем резак, если режим не активен
+        END_IF
+    END_IF
+
+    // Если активен сигнал на перемещение вправо
+    IF GVL.rev_r THEN
+        GVL.out_st_s1 := FALSE; // Отключаем сигнал на перемещение стола в начало
+        GVL.out_st_s2 := TRUE; // Включаем сигнал на перемещение стола в конец
+        GVL.out_st_s3 := TRUE; // Включаем сигнал на выбор скоростного режима
+        GVL.out_rezec := FALSE; // Отключаем резак
+    END_IF
+END_IF
+
+// Управление перемещением стола по оси Y
+IF GVL.xyza_y AND run = FALSE THEN
+    // Если нажата кнопка перемещения вперед
+    IF GVL.plus AND GVL.minus = FALSE AND GVL.rev_r = FALSE THEN
+        GVL.out_st_s1 := TRUE; // Включаем сигнал на перемещение стола вперед
+        GVL.out_st_s2 := FALSE; // Отключаем сигнал на перемещение стола назад
+        GVL.out_st_s3 := FALSE; // Отключаем сигнал на выбор скоростного режима
+    END_IF
+
+    // Если нажата кнопка перемещения назад
+    IF GVL.plus = FALSE AND GVL.minus AND GVL.rev_l = FALSE THEN
+        GVL.out_st_s1 := FALSE; // Отключаем сигнал на перемещение стола вперед
+        GVL.out_st_s2 := TRUE; // Включаем сигнал на перемещение стола назад
+        GVL.out_st_s3 := FALSE; // Отключаем сигнал на выбор скоростного режима
+    END_IF
+
+    // Если ни одна кнопка не нажата
+    IF GVL.plus = FALSE AND GVL.minus = FALSE THEN
+        GVL.out_st_s1 := FALSE; // Отключаем сигнал на перемещение стола вперед
+        GVL.out_st_s2 := FALSE; // Отключаем сигнал на перемещение стола назад
+        GVL.out_st_s3 := FALSE; // Отключаем сигнал на выбор скоростного режима
+    END_IF
+END_IF
+
+// Управление запуском стола
+IF GVL.xyza_1 THEN
+    // Если шпиндель включен или активен режим
+    IF GVL.out_spd_run OR GVL.mode THEN
+        // Если нажата кнопка перемещения вперед
+        IF GVL.plus AND GVL.minus = FALSE AND GVL.rev_r = FALSE THEN
+            GVL.out_st_s1 := TRUE; // Включаем сигнал на перемещение стола вперед
+            GVL.out_st_s2 := FALSE; // Отключаем сигнал на перемещение стола назад
+            GVL.out_st_s3 := TRUE; // Включаем сигнал на выбор скоростного режима
+            run := TRUE; // Устанавливаем флаг работы станка
+        END_IF
+
+        // Если нажата кнопка перемещения назад
+        IF GVL.plus = FALSE AND GVL.minus AND GVL.rev_l = FALSE THEN
+            GVL.out_st_s1 := FALSE; // Отключаем сигнал на перемещение стола вперед
+            GVL.out_st_s2 := TRUE; // Включаем сигнал на перемещение стола назад
+            GVL.out_st_s3 := TRUE; // Включаем
+            GVL.out_st_s3 := TRUE; // Включаем сигнал на выбор скоростного режима
+            run := TRUE; // Устанавливаем флаг работы станка
+        END_IF
+    END_IF
+END_IF
+
+Объяснение кода:
+1.	Управление перемещением стола:
+•	Если активен сигнал на перемещение влево (rev_l), то включается сигнал на перемещение стола в начало (out_st_s1), отключается сигнал на перемещение в конец (out_st_s2), и включается сигнал на выбор скоростного режима (out_st_s3). Если активен режим, то также включается резак (out_rezec).
+•	Если активен сигнал на перемещение вправо (rev_r), то наоборот: отключается сигнал на перемещение в начало и включается сигнал на перемещение в конец.
+2.	Управление перемещением по оси Y:
+•	Если активен сигнал на перемещение вперед (plus), то включается сигнал на перемещение стола вперед и отключается сигнал на перемещение назад.
+•	Если активен сигнал на перемещение назад (minus), то наоборот: включается сигнал на перемещение назад и отключается сигнал на перемещение вперед.
+•	Если ни одна кнопка не нажата, все сигналы на перемещение отключаются.
+3.	Управление запуском стола:
+•	Если активен сигнал на запуск стола (xyza_1), и шпиндель включен или активен режим, то проверяются кнопки на перемещение. Если нажата кнопка перемещения вперед, включается сигнал на перемещение вперед и устанавливается флаг работы станка. Если нажата кнопка перемещения назад, включается сигнал на перемещение назад и также устанавливается флаг работы станка.
+Заключение
+Эти комментарии помогут лучше понять логику работы кода и его структуру. Если у вас есть дополнительные вопросы или требуется дальнейшая помощь, не стесняйтесь спрашивать!
+
+
+
+
+
+
+1.	Запуск и управление станком:
+•	Станок запускается оператором, который активирует соответствующие переменные управления, такие как run, spd_on, и spd_off. Эти переменные контролируют работу шпинделя и других механизмов.
+•	Если активен сигнал на остановку стола (GVL.stst), работа станка останавливается, и все сигналы на перемещение отключаются.
+2.	Управление шпинделем:
+•	Шпиндель управляется с помощью частотного преобразователя. Если режим работы не активен (GVL.mode = FALSE), шпиндель включается при активации переменной spd_on и останавливается при активации переменной spd_off.
+•	В коде предусмотрен контроль за состоянием шпинделя, чтобы предотвратить его работу в неподходящих условиях.
+3.	Контроль зажатия заготовки:
+•	Токовый датчик, подключенный к контроллеру, отправляет сигнал широтно-импульсной модуляции (ШИМ) для контроля зажатия заготовки. В коде это реализовано через переменную GVL.brake_Ampere, которая управляет состоянием тормоза.
+•	Если ток превышает определенный уровень (например, скважность сигнала больше 70%), контроллер принимает решение о необходимости отключения тормоза или активации аварийного сигнала (GVL.out_alarm).
+4.	Перемещение осей:
+•	Перемещение стола и других осей осуществляется с помощью электромагнитных пускателей, управляемых отдельными логическими переменными типа BOOL (например, GVL.out_x_r, GVL.out_x_l для оси X и GVL.out_z_r, GVL.out_z_l для оси Z).
+•	Оператор может управлять перемещением с помощью кнопок, которые активируют соответствующие переменные. Код проверяет состояние кнопок и включает или отключает сигналы на перемещение.
+5.	Управление серводрайвером:
+•	Шпиндель опускается и поднимается с помощью серводрайвера, который управляется переменными, связанными с состоянием зажатия и перемещения. Код включает логику для управления тормозом, чтобы обеспечить безопасное перемещение шпинделя.
+6.	Обработка сигналов от энкодеров:
+•	Перемещение оси A1 контролируется с помощью энкодеров. Код отслеживает изменения состояния сигналов EncoderA и EncoderB, что позволяет точно определять направление и количество шагов, которые необходимо выполнить.
+•	Счетчик шагов (StepCount) обновляется в зависимости от состояния энкодеров, что позволяет контролировать позицию оси.
+7.	Аварийные ситуации:
+•	В коде предусмотрены механизмы для обработки аварийных ситуаций. Если активируется сигнал тревоги (GVL.alarm_1, GVL.alarm_2, GVL.alarm_3), включается аварийный сигнал (GVL.out_alarm), что позволяет оператору быстро реагировать на проблемы.
+
+
+
+
+
+
+Режимы работы:
+В станке реализован выбор режима работы переключателем между режимом строгания (работа второго суппорта) и режимом шлифования (выполнения обработки первым суппортом).
+Режим строгания: В этом режиме не активна функция запуска шпинделя. При движении стола против реза отключается электромагнитный соленоид прижима резца. 
+Режим шлифования: В этом режиме не используется электромагнитный соленоид прижима резца.  Доступна функция управления шпинделем и производится контроль его включения перед запуском станины.
+Выбор оси:
+Ось Z (перемещение портала): управление осью осуществляется при помощи кнопок на пульте «+» и «-», при их нажатиях контролер подаёт сигнал на включения  электромагнитных пускателей для вращения двигателя в соответствующем направлении. При нахождении переключателя выбора оси в положении Z, тормоз ослабляется для свободного перемещения оси и, при выключении переключателя, зажимается для защиты от произвольных перемещений.
+Ось X (перемещение суппортов на портале): управление осью осуществляется при помощи кнопок на пульте «+» и «-», при их нажатиях контролер подаёт сигнал на включения  электромагнитных пускателей для вращения двигателя в соответствующем направлении.
+Ось Y (подача станины): перемещение осью осуществляется  при помощи кнопок на пульте «+» и «-», при их нажатиях контролер подаёт сигналы для  управления частотным преобразователем двигателя перемещающем  станину.
+Ось 1 (запуск станины): в этом режиме при нажитии на кнопки «+» и «-», контролер запустает станок сответствуюшем направлении до концевого датчика разворота стала затем меняет направление вращения  до концевого датчика с противоположной стороны
+Ось A1(перемещение суппорта): в этом режиме производится регулеровка шпигделя на суппорте грубым пере мещением кнопками «+» и «-» и точное перемещение энкодером (махавиком) на пульте 
+
+
+
+
+
+1. Перемещение станины 
+Перемещение станины осуществляется с помощью сигналов out_st_s1, out_st_s2, и out_st_s3, которые управляют частотным преобразователем. Эти сигналы активируются в зависимости от состояния кнопок на пульте управления, позволяя оператору перемещать станину вперед или назад.
+•	Кнопка «+»: Включает сигнал на перемещение станины вперед.
+•	Кнопка «-»: Включает сигнал на перемещение станины назад.
+•	Стоп: При нажатии на кнопку остановки (стоп) все действия останавливаются.
+2. Перемещение осей
+Перемещение осей (X, Y, Z и A1) осуществляется с помощью электромагнитных пускателей, управляемых отдельными логическими переменными типа BOOL:
+•	Ось X:
+•	GVL.out_x_r: Включает движение суппортов вправо.
+•	GVL.out_x_l: Включает движение суппортов влево.
+•	Ось Y:
+•	Управляется через частотный преобразователь, который активируется сигналами, аналогичными сигналам для станины.
+•	Ось Z:
+•	GVL.out_z_r: Включает движение портала вверх.
+•	GVL.out_z_l: Включает движение портала вниз.
+Оператор управляет перемещением с помощью кнопок, которые активируют соответствующие переменные. Код проверяет состояние кнопок и включает или отключает сигналы на перемещение.
+3. Контроль работы тормоза оси Z
+Контроль зажатия тормоза оси Z осуществляется через переменную GVL.brake_Ampere, которая управляет состоянием тормоза.
+•	Выключение тормоза:
+•	Контроллер отправляет сигнал на магнитный пускатель для вращения двигателя в сторону ослабления тормоза (out_z_l).
+•	После выключения концевого датчика двигатель продолжает движение 3 секунды, что позволяет отвести тормоз на дополнительное расстояние от датчика.
+•	Включение тормоза:
+•	Контроллер отправляет сигнал на магнитный пускатель для вращения двигателя в сторону зажима тормоза (out_z_r).
+•	Он контролирует ток двигателя датчиком, который отправляет сигнал ШИМ. Если включился концевой датчик зажима и ток повышается до определенного уровня (например, скважность сигнала больше 70%), происходит прекращение подачи сигнала зажима тормоза.
+•	Если концевой датчик зажима не включился и ток повышается до того же уровня, происходит прекращение подачи сигнала зажима тормоза и отключение станка путем подачи сигнала аварии (GVL.out_alarm) до устранения неисправности.
+4. Обработка сигналов от энкодера (маховика)
+Перемещение оси A1 контролируется с помощью энкодеров. Код отслеживает изменения состояния сигналов EncoderA и EncoderB, что позволяет точно определять направление и количество шагов, которые необходимо выполнить.
+•	Счетчик шагов (StepCount): Обновляется в зависимости от состояния энкодеров, что позволяет контролировать позицию оси.
+•	Если EncoderA изменяется с LOW на HIGH, и EncoderB активен, счетчик увеличивается, иначе уменьшается.
+•	Аналогично для EncoderB.
+5. Аварийные ситуации
+В коде предусмотрены механизмы для обработки аварийных ситуаций. Если активируется сигнал тревоги от приводов (GVL.alarm_1, GVL.alarm_2, GVL.alarm_3) или происходит аварийная остановка (GVL.stop = FALSE), включается аварийный сигнал (GVL.out_alarm) и происходит полная остановка станка до устранения неисправности.
+6. Управление шпинделем
+В зависимости от режима работы (строгание или шлифование) контроллер управляет шпинделем:
+•	Режим строгания: Шпиндель не активен.
+•	Режим шлифования:
+•	Если GVL.spd_on активен, шпиндель включается (GVL.out_spd_run := TRUE).
+•	Если GVL.spd_off активен, шпиндель останавливается (`
+6. Управление шпинделем (продолжение)
+•	Режим строгания: В этом режиме шпиндель не активен, и его управление отключено. Это позволяет избежать ненужного вращения шпинделя во время строгания, когда он не требуется.
+•	Режим шлифования:
+•	Включение шпинделя: Если переменная GVL.spd_on активна, шпиндель включается, и переменная GVL.out_spd_run устанавливается в TRUE. Это позволяет шпинделю начать вращение для выполнения шлифовальных операций.
+•	Остановка шпинделя: Если переменная GVL.spd_off активна, шпиндель останавливается, и переменная GVL.out_spd_run устанавливается в FALSE. Это необходимо для безопасного завершения работы и предотвращения повреждений.
+7. Управление режимами работы
+Станок может работать в двух режимах, которые переключаются с помощью логической переменной GVL.mode:
+•	Режим строгания (mode = FALSE):
+•	В этом режиме отключается управление шпинделем, и оператор может управлять перемещением станины и осей без активации шпинделя.
+•	При этом также отключается электромагнитный соленоид прижима резца, что предотвращает его активацию во время строгания.
+•	Режим шлифования (mode = TRUE):
+•	В этом режиме доступна функция управления шпинделем, и оператор может включать и останавливать шпиндель в зависимости от необходимости.
+•	Электромагнитный соленоид прижима резца не используется, что позволяет сосредоточиться на шлифовальных операциях.
+8. Управление перемещением осей
+Каждая ось (X, Y, Z и A1) управляется с помощью кнопок на пульте управления, которые активируют соответствующие переменные:
+•	Ось X:
+•	Кнопка «+» активирует переменную GVL.out_x_r, что приводит к перемещению суппортов вправо.
+•	Кнопка «-» активирует переменную GVL.out_x_l, что приводит к перемещению суппортов влево.
+•	Ось Y:
+•	Кнопка «+» активирует управление частотным преобразователем для перемещения станины вперед.
+•	Кнопка «-» активирует управление частотным преобразователем для перемещения станины назад.
+•	Ось Z:
+•	Кнопка «+» активирует переменную GVL.out_z_r, что приводит к перемещению портала вверх.
+•	Кнопка «-» активирует переменную GVL.out_z_l, что приводит к перемещению портала вниз.
+•	Ось A1:
+•	Перемещение оси A1 осуществляется как с помощью кнопок «+» и «-», так и с помощью энкодера (маховика).
+•	Кнопки «+» и «-» активируют соответствующие переменные для грубого перемещения, а энкодер позволяет точно регулировать позицию.
+9. Обработка аварийных ситуаций
+Код включает механизмы для обработки аварийных ситуаций:
+•	Если активируется сигнал тревоги от приводов (GVL.alarm_1, GVL.alarm_2, GVL.alarm_3), или если происходит аварийная остановка (GVL.stop = FALSE), включается аварийный сигнал (GVL.out_alarm).
+•	В случае активации аварийного сигнала происходит полная остановка станка, что предотвращает дальнейшие повреждения и обеспечивает безопасность оператора.
+Заключение
+Таким образом, код управления станком реализует множество функций, обеспечивающих безопасное и эффективное выполнение операций строгания и шлифования. Каждая ось и режим работы имеют свои управляющие механизмы, которые позволяют оператору точно контролировать процесс обработки. Аварийные механизмы гарантируют безопасность и защиту оборудования в случае возникновения неисправностей.
+
